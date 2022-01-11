@@ -33,7 +33,7 @@ layout(location = 0) out vec4 outColor;
 
 void main() {
     outColor = vec4(fragColor, 1.0);
-	gl_FragDepth = -1.f;
+	gl_FragDepth = .9f;
 }
 )Shader";
 

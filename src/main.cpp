@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
 		vkl::Window::pollEventsForAllWindows();
 		window.swapChain.prepNextFrame(window.device, window.surface, window.commandDispatcher, window.mainPass, window.window.getWindowSize());
 
-		mgr.update(window.device, window.swapChain, window.pipelineManager, window.bufferManager, window.renderObjects);
+		mgr.update(window.device, window.swapChain, window.pipelineManager, window.bufferManager, window.renderObjects, window.window);
 
 		updateWindow(window);
 		//window.bufferManager.cleanUnusedBuffers(window.device);

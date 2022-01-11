@@ -1,6 +1,8 @@
 #include "TileManager.h"
 #include "RemoteAccess.h"
 #include <iostream>
+#include <vkl/Window.h>
+#include <vkl/Event.h>
 
 namespace {
 	constexpr const char* JSONHomePage = "https://cd-static.bamgrid.com/dp-117731241344/home.json";
@@ -32,6 +34,7 @@ namespace {
 				row_inner.title = json["text"]["title"]["full"]["set"]["default"]["content"]; //not permanant
 				row_inner.isRefSet = true;
 				row_inner.setId = json["refId"];
+				row_inner.setId = std::string(RefPrefix) + row_inner.setId + ".json";
 				grid._rows.push_back(row_inner);
 				return;
 			}
@@ -105,21 +108,93 @@ TileManager::TileManager()
 	}
 }
 
-void TileManager::update(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager, std::vector<std::shared_ptr<vkl::RenderObject>>& renderObjects)
+void TileManager::update(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager, std::vector<std::shared_ptr<vkl::RenderObject>>& renderObjects, const vkl::Window& window)
 {
+	for (auto&& event : window.events())
+	{
+		if (event->getType() == vkl::EventType::KEY_DOWN)
+		{
+			auto keyDown = static_cast<const vkl::KeyDownEvent*>(event.get());
+			switch (keyDown->key)
+			{
+			case vkl::Key::KEY_DOWN:
+				_highlighted.y = std::min(std::max(0, _highlighted.y + 1), (int)_grid._rows.size());
+				if (_grid._rows.size() > _highlighted.y)
+				{
+					_highlighted.x = std::min(std::max(0, _highlighted.x), (int)_grid._rows[_highlighted.y]._tiles.size());
+				}
+				break;
+			case vkl::Key::KEY_UP:
+				_highlighted.y = std::min(std::max(0, _highlighted.y - 1), (int)_grid._rows.size());
+				if (_grid._rows.size() > _highlighted.y)
+				{
+					_highlighted.x = std::min(std::max(0, _highlighted.x), (int)_grid._rows[_highlighted.y]._tiles.size());
+				}
+				break;
+			case vkl::Key::KEY_LEFT:
+			{
+				if (_grid._rows.size() > _highlighted.y)
+				{
+					_highlighted.x = std::min(std::max(0, _highlighted.x - 1), (int)_grid._rows[_highlighted.y]._tiles.size());
+				}
+			}
+			break;
+			case vkl::Key::KEY_RIGHT:
+			{
+				if (_grid._rows.size() > _highlighted.y)
+				{
+					_highlighted.x = std::min(std::max(0, _highlighted.x + 1), (int)_grid._rows[_highlighted.y]._tiles.size());
+				}
+			}
+			break;
+			}
+		}
+	}
+
+
 	float y = -1.f + TileData::tile_gap_vertical;
 
-	for (auto&& row : _grid._rows)
+	int y_pos = 0;
+
+	for (auto& row : _grid._rows)
 	{
 		if (row._tiles.empty())
+		{
+			if (isTileVisible(_screenOffset, 0, 0, y_pos))
+			{
+				loadRefSet(row);
+			}
+		}
+		if (row._tiles.empty())
+		{
 			continue;
+		}
+
 		float x = -1.f + TileData::tile_gap_horizontal;
+		int x_pos = 0;
+		if (!row.title.empty())
+		{
+			if (!row.textBox)
+			{
+				row.textBox = std::make_shared<TextBox>(device, swapChain, pipelines, bufferManager);
+				row.textBox->setText(row.title);
+				row.textBox->setPosition({ x,y });
+				renderObjects.push_back(row.textBox);
+			}
+			row.textBox->update({ 0,0, window.getWindowSize().width, window.getWindowSize().height });
+			y += TileData::tile_gap_horizontal; //on purpose;
+		}
+
 		for (auto&& tile : row._tiles)
 		{
+			if(tile._imagePlane)
+				tile._imagePlane->setSelected(_highlighted.x == x_pos && _highlighted.y == y_pos);
 			tile.update(device, swapChain, pipelines, bufferManager, true, { x,y });
 			x += TileData::tile_width + TileData::tile_gap_horizontal;
+			x_pos++;
 		}
 		y += TileData::tile_height + TileData::tile_gap_vertical;
+		y_pos++;
 	}
 
 	if (!_init)
@@ -138,5 +213,26 @@ void TileManager::update(const vkl::Device& device, const vkl::SwapChain& swapCh
 void TileManager::parse(const nlohmann::json& json)
 {
 	_parse(json, _grid, nullptr);
+}
+
+bool TileManager::isTileVisible(int yOffset, int xOffset, int x, int y)
+{
+	if (x >= xOffset && x <= xOffset + TileData::visible_tiles)
+		return true;
+	if (y >= yOffset && y <= yOffset + TileData::visible_tiles)
+		return true;
+	return false;
+}
+
+void TileManager::loadRefSet(Row& load)
+{
+	if (load.setId.empty())
+		return;
+	auto refSetJsonStr = receiveStringResource(load.setId.c_str());
+	if (refSetJsonStr.empty())
+		return;
+	auto refSetJson = nlohmann::json::parse(refSetJsonStr);
+	_parse(refSetJson["data"]["CuratedSet"]["items"], _grid, &load);
+	load.setId = "";
 }
 

@@ -20,6 +20,7 @@ namespace
 
 layout(binding = 0) uniform MVP {
 	mat4 model;
+	float selected;
 } u_mvp;
 
 layout(location = 0) in vec2 inPosition;
@@ -28,13 +29,20 @@ layout(location = 1) in vec2 inUV;
 layout(location = 0) out vec2 fragUV;
 
 void main() {
-    gl_Position = u_mvp.model * vec4(inPosition, 0.0, 1.0);
+	vec2 position = inPosition;
+
+    gl_Position = u_mvp.model * vec4(position, 0.0, 1.0);
     fragUV = inUV;
 }
 )Shader";
 	constexpr const char* FragShader = R"Shader(
 
 #version 450
+
+layout(binding = 0) uniform MVP {
+	mat4 model;
+	float selected;
+} u_mvp;
 
 layout(binding = 1) uniform sampler2D texSampler;
 
@@ -43,7 +51,18 @@ layout(location = 0) in vec2 fragUV;
 layout(location = 0) out vec4 outColor;
 
 void main() {
+	
     outColor = texture(texSampler, fragUV);
+
+	if(u_mvp.selected > 0.f)
+	{
+		if(fragUV.x < .01 || fragUV.x >.99 || fragUV.y < .01 || fragUV.y > .99)
+			outColor = vec4(1,1,0,1);
+		else if(fragUV.x < .02 || fragUV.x >.98 || fragUV.y < .02 || fragUV.y > .98)
+			outColor = vec4(0,0,0,1);
+	}
+
+	gl_FragDepth=.5f;
 }
 )Shader";
 
@@ -69,7 +88,7 @@ void ImagePlane::describePipeline(vkl::PipelineDescription& description)
 
 	description.declareTexture(1);
 
-	description.setDepthOp(VK_COMPARE_OP_ALWAYS);
+	//description.setDepthOp(VK_COMPARE_OP_ALWAYS);
 }
 
 ImagePlane::ImagePlane(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager)
@@ -96,6 +115,12 @@ void ImagePlane::setImage(const std::string& url)
 		
 		return retData;
 		});
+}
+
+void ImagePlane::setSelected(bool selected)
+{
+	_selected = selected;
+	_uniform->setData({ _transform, _selected ? 1.f : 0.f });
 }
 
 void ImagePlane::update(const vkl::Device& device, const vkl::SwapChain& swapChain, vkl::BufferManager& bufferManager)
@@ -126,7 +151,8 @@ ImagePlane::~ImagePlane()
 
 void ImagePlane::setScreenPosition(float x, float y)
 {
-	_uniform->setData(glm::translate(glm::identity<glm::mat4>(), { x - -1.f,y - -1.f,0 }));
+	_transform = glm::translate(glm::identity<glm::mat4>(), { x - -1.f,y - -1.f,0 });
+	_uniform->setData({ _transform, _selected ? 1.f : 0.f });
 }
 
 void ImagePlane::init(const vkl::Device& device, const vkl::SwapChain& swapChain, vkl::BufferManager& bufferManager)
@@ -164,7 +190,8 @@ void ImagePlane::init(const vkl::Device& device, const vkl::SwapChain& swapChain
 
 	addDrawCall(drawCall);
 
-	_uniform = bufferManager.createTypedUniform<glm::mat4>(device, swapChain);
+	_uniform = bufferManager.createTypedUniform<UniformData>(device, swapChain);
+	_uniform->setData({ _transform, _selected ? 1.f : 0.f });
 	addUniform(_uniform, 0);
 }
 
