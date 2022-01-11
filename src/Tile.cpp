@@ -57,7 +57,7 @@ void main() {
 	if(u_mvp.selected > 0.f)
 	{
 		if(fragUV.x < .01 || fragUV.x >.99 || fragUV.y < .01 || fragUV.y > .99)
-			outColor = vec4(1,1,0,1);
+			outColor = vec4(1,1,1,1);
 		else if(fragUV.x < .02 || fragUV.x >.98 || fragUV.y < .02 || fragUV.y > .98)
 			outColor = vec4(0,0,0,1);
 	}
@@ -101,7 +101,7 @@ ImagePlane::ImagePlane(const vkl::Device& device, const vkl::SwapChain& swapChai
 void ImagePlane::setImage(const std::string& url)
 {
 	assert(!_imageData.data);
-	_imageFuture = std::async(std::launch::async | std::launch::deferred, [url]() -> ImageData {
+	_imageFuture = std::move(std::async(std::launch::async | std::launch::deferred, [url]() -> ImageData {
 		
 		auto jpegData = receiveImageData(url.c_str());
 		if (jpegData.empty())
@@ -114,13 +114,18 @@ void ImagePlane::setImage(const std::string& url)
 		retData.height = (uint32_t)height;
 		
 		return retData;
-		});
+		}));
 }
 
 void ImagePlane::setSelected(bool selected)
 {
 	_selected = selected;
-	_uniform->setData({ _transform, _selected ? 1.f : 0.f });
+	auto finalTransform = _transform;
+	if (_selected)
+	{
+		finalTransform = glm::scale(finalTransform, { 1.2, 1.2, 1.2 });
+	}
+	_uniform->setData({ finalTransform, _selected ? 1.f : 0.f });
 }
 
 void ImagePlane::update(const vkl::Device& device, const vkl::SwapChain& swapChain, vkl::BufferManager& bufferManager)
@@ -151,8 +156,15 @@ ImagePlane::~ImagePlane()
 
 void ImagePlane::setScreenPosition(float x, float y)
 {
-	_transform = glm::translate(glm::identity<glm::mat4>(), { x - -1.f,y - -1.f,0 });
-	_uniform->setData({ _transform, _selected ? 1.f : 0.f });
+	x += TileData::tile_width / 2.f;
+	y += TileData::tile_height / 2.f;
+	_transform = glm::translate(glm::identity<glm::mat4>(), { x ,y ,0 });
+	auto finalTransform = _transform;
+	if (_selected)
+	{
+		finalTransform = glm::scale(finalTransform, { 1.2, 1.2, 1.2 });
+	}
+	_uniform->setData({ finalTransform, _selected ? 1.f : 0.f });
 }
 
 void ImagePlane::init(const vkl::Device& device, const vkl::SwapChain& swapChain, vkl::BufferManager& bufferManager)
@@ -163,10 +175,13 @@ void ImagePlane::init(const vkl::Device& device, const vkl::SwapChain& swapChain
 
 	auto vbo = bufferManager.createVertexBuffer(device, swapChain);
 
-	_verts.push_back({ glm::vec2(-1.0,							-1.0) , glm::vec2(0,0) });  //TL
-	_verts.push_back({ glm::vec2(-1.0 + TileData::tile_width,	-1.0) , glm::vec2(1,0) });  //TR
-	_verts.push_back({ glm::vec2(-1.0 + TileData::tile_width,	-1.0 + TileData::tile_height) , glm::vec2(1,1) });  //BR
-	_verts.push_back({ glm::vec2(-1.0,							-1.0 + TileData::tile_height) , glm::vec2(0,1) });  //BL
+	auto width = TileData::tile_width / 2.f;
+	auto height = TileData::tile_height / 2.f;
+
+	_verts.push_back({ glm::vec2(-width, -height) , glm::vec2(0,0) });  //TL
+	_verts.push_back({ glm::vec2(width, -height) , glm::vec2(1,0) });  //TR
+	_verts.push_back({ glm::vec2(width, height) , glm::vec2(1,1) });  //BR
+	_verts.push_back({ glm::vec2(-width, height) , glm::vec2(0,1) });  //BL
 
 	vbo->setData(_verts.data(), sizeof(Vertex), _verts.size());
 	addVBO(vbo, 0);
@@ -195,16 +210,18 @@ void ImagePlane::init(const vkl::Device& device, const vkl::SwapChain& swapChain
 	addUniform(_uniform, 0);
 }
 
-void Tile::update(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager, bool visible, const glm::vec2& position)
+void Tile::update(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager, const glm::vec2& position, std::vector<std::shared_ptr<vkl::RenderObject>>& renderObjects)
 {
-	if (!_init && visible)
+	if (!_imagePlane)
 	{
 		_imagePlane = std::make_shared<ImagePlane>(device, swapChain, pipelines, bufferManager);
 		_imagePlane->setImage(_data.imageURL);
-		_imagePlane->setScreenPosition(position.x, position.y);
-		_init = true;
+		renderObjects.push_back(_imagePlane);
 	}
 
 	if (_imagePlane)
+	{
+		_imagePlane->setScreenPosition(position.x, position.y);
 		_imagePlane->update(device, swapChain, bufferManager);
+	}
 }

@@ -15,6 +15,13 @@ class TextBox : public vkl::RenderObject
 	static void describePipeline(vkl::PipelineDescription& description);
 
 public:
+
+	struct Vertex
+	{
+		glm::vec4 posUV;
+		glm::vec4 color;
+	};
+
 	TextBox(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager);
 
 	void setText(std::string_view text);
@@ -25,6 +32,9 @@ public:
 
 	void setSize(const glm::vec2& ndc);
 	glm::vec2 getSize() const;
+
+	void setMaxLength(float pixels);
+	void setBackground(const glm::vec4& bg);
 
 	void update(const glm::vec4& view);
 
@@ -40,7 +50,11 @@ private:
 
 	glm::vec4 _lastViewport{ 0,0,0,0 };
 
-	std::vector<glm::vec4> _vertexData;
+	glm::vec4 _background{ 0,0,0,0 };
+
+	float _maxLength = 800.f;
+	
+	std::vector<Vertex> _vertexData;
 	std::shared_ptr<vkl::VertexBuffer> _vbo;
 	std::shared_ptr<vkl::DrawCall> _drawCall;
 	std::shared_ptr<vkl::TypedUniform<glm::vec4>> _uniform;

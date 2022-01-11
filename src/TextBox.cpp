@@ -27,7 +27,9 @@ namespace
 #version 450
 
 layout(location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
+layout(location = 1) in vec4 color; // <vec2 pos, vec2 tex>
 layout(location = 0) out vec2 TexCoords;
+layout(location = 1) out vec4 o_color;
 
 layout(binding = 1) uniform UBO {
     vec4  viewport;
@@ -43,6 +45,7 @@ void main()
 
     gl_Position = pos;
     TexCoords = vertex.zw;
+    o_color = color;
 }
 )Shader";
 	constexpr const char* FragShader = R"Shader(
@@ -51,12 +54,19 @@ void main()
 
 layout(location = 0) out vec4 outColor;
 layout(location = 0) in vec2 TexCoords;
+layout(location = 1) in vec4 i_color;
 
 layout(binding = 0) uniform sampler2D Tex;
 
 void main() {
-    outColor = texture(Tex, TexCoords);
-	gl_FragDepth = .4f;
+    if (TexCoords.x < 0.f)
+    {
+        outColor = i_color;
+    }
+    else
+    {
+        outColor = i_color * texture(Tex, TexCoords);
+    }
 }
 )Shader";
 
@@ -225,6 +235,7 @@ std::string_view TextBox::getText() const
 void TextBox::setPosition(const glm::vec2& ndc)
 {
 	_position = ndc;
+	_positionDirty = true;
 }
 glm::vec2 TextBox::getPosition() const
 {
@@ -239,22 +250,65 @@ glm::vec2 TextBox::getSize() const
 {
 	return _size;
 }
+
+void TextBox::setMaxLength(float pixels)
+{
+	_maxLength = pixels;
+	_positionDirty = true;
+}
+void TextBox::setBackground(const glm::vec4& bg)
+{
+	_background = bg;
+	_positionDirty = true;
+}
+
 void TextBox::update(const glm::vec4& viewport)
 {
 	if (_textDirty || _positionDirty || _lastViewport != viewport)
 	{
-		_vertexData.resize(_text.size() * 6);
+		_vertexData.resize((_text.size()+1) * 6);
 
-		int n = 0;
-		float x = (_position.x + 1.0f) * 0.5f * viewport.z;
-		float y = (_position.y + 1.0f) * 0.5f * viewport.w;
+		int n = 6;
+		float initX = (_position.x + 1.0f) * 0.5f * viewport.z;
+		float initY = (_position.y + 1.0f) * 0.5f * viewport.w;
+
+		float x = initX;
+		float y = initY;
 		float sx = _size.x;
 		float sy = _size.y;
 		int atlas_width = fontAtlas().tex.m_width;
 		int atlas_height = fontAtlas().tex.m_height;
 		const auto& c = fontAtlas().chars;
 
-		for (char p : _text) {
+		float maxX = x;
+		float maxY = y;
+
+		for (auto itr = _text.begin(); itr != _text.end(); ++itr) {
+			char p = *itr;
+			if (p == ' ')
+			{
+				float wordSize = 0;
+				auto jitr = itr;
+				for (; jitr != _text.end(); ++jitr)
+				{
+					if (*jitr == ' ')
+						break;
+					wordSize += c[*jitr].bw * sx;
+				}
+				if (x + wordSize - initX > _maxLength)
+				{
+					x = initX;
+					y += atlas_height;
+				}
+			}
+
+			if (p == '\n')
+			{
+				x = initX;
+				y += atlas_height;
+				continue;
+			}
+
 			float x2 = x + c[p].bl * sx;
 			float y2 = y - c[p].bt * sy;
 			float w = c[p].bw * sx;
@@ -268,6 +322,8 @@ void TextBox::update(const glm::vec4& viewport)
 			if (!w || !h)
 				continue;
 
+			maxX = std::max(maxX, x2 + w);
+			maxY = std::max(maxY, y2 + h);
 
 			/*
 			4 3
@@ -279,15 +335,28 @@ void TextBox::update(const glm::vec4& viewport)
 			glm::vec4 p3{ x2 + w, y2,                  c[p].tx + c[p].bw / atlas_width,    0 };
 			glm::vec4 p4{ x2, y2,                      c[p].tx,                            0 };
 
-			_vertexData[n++] = p4;
-			_vertexData[n++] = p1;
-			_vertexData[n++] = p2;
-			_vertexData[n++] = p4;
-			_vertexData[n++] = p2;
-			_vertexData[n++] = p3;
+			_vertexData[n++] = {p4, glm::vec4{ 1.f, 1.f, 1.f, 1.f }};
+			_vertexData[n++] = {p1, glm::vec4{ 1.f, 1.f, 1.f, 1.f }};
+			_vertexData[n++] = {p2, glm::vec4{ 1.f, 1.f, 1.f, 1.f }};
+			_vertexData[n++] = {p4, glm::vec4{ 1.f, 1.f, 1.f, 1.f }};
+			_vertexData[n++] = {p2, glm::vec4{ 1.f, 1.f, 1.f, 1.f }};
+			_vertexData[n++] = {p3, glm::vec4{ 1.f, 1.f, 1.f, 1.f }};
 		}
 
-		_vbo->setData(_vertexData.data(), sizeof(glm::vec4), _vertexData.size());
+		float minY = initY - atlas_height - 4;
+
+		glm::vec4 b1{ initX - 4, maxY + 4,                   -1,-1 };
+		glm::vec4 b2{ maxX + 4,  maxY + 4,                          -1,-1 };
+		glm::vec4 b3{ maxX + 4, minY,                   -1,-1 };
+		glm::vec4 b4{ initX - 4, minY,           -1,-1 };
+		_vertexData[0] = {b4,  _background};
+		_vertexData[1] = {b1,  _background};
+		_vertexData[2] = {b2,  _background};
+		_vertexData[3] = {b4,  _background};
+		_vertexData[4] = {b2,  _background};
+		_vertexData[5] = {b3,  _background};
+
+		_vbo->setData(_vertexData.data(), sizeof(Vertex), _vertexData.size());
 		_drawCall->setCount((uint32_t)_vertexData.size());
 		_uniform->setData(viewport);
 
@@ -303,10 +372,12 @@ void TextBox::describePipeline(vkl::PipelineDescription& description)
 	description.addShaderGLSL(VK_SHADER_STAGE_VERTEX_BIT, VertShader);
 	description.addShaderGLSL(VK_SHADER_STAGE_FRAGMENT_BIT, FragShader);
 	description.setPrimitiveTopology(VkPrimitiveTopology::VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-	description.declareVertexAttribute(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(glm::vec4), 0);
+	description.declareVertexAttribute(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(Vertex), offsetof(Vertex, posUV));
+	description.declareVertexAttribute(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, sizeof(Vertex), offsetof(Vertex, color));
 	description.declareTexture(0);
 	description.declareUniform(1, sizeof(glm::vec4));
 	description.setBlendEnabled(true);
+	description.setDepthEnabled(false);
 	//description.setDepthOp(VK_COMPARE_OP_ALWAYS);
 }
 

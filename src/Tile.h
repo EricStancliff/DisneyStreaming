@@ -15,9 +15,13 @@ struct TileData
 	static constexpr inline float tile_gap_horizontal = tile_width / 8.f;
 
 	static constexpr inline int visible_tiles = (int)(2.f / (tile_height+(tile_gap_vertical*2)) + 1);
+	static constexpr inline int visible_tiles_horizontal = (int)(2.f / (tile_width + (tile_gap_horizontal * 2)) + 1);
 
 	std::string title;
 	std::string imageURL;
+	std::string language;
+	std::string rating;
+	std::string type;
 };
 
 class ImagePlane : public vkl::RenderObject
@@ -76,12 +80,11 @@ public:
 	TileData& data() { return _data; }
 	const TileData& data() const { return _data; }
 
-	void update(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager, bool visible, const glm::vec2& position);
+	void update(const vkl::Device& device, const vkl::SwapChain& swapChain, const vkl::PipelineManager& pipelines, vkl::BufferManager& bufferManager, const glm::vec2& position, std::vector<std::shared_ptr<vkl::RenderObject>>& renderObjects);
 	std::shared_ptr< ImagePlane> _imagePlane;
 
 private:
 	std::vector<glm::vec2> _verts;
 	TileData _data;
-	bool _init = false;
 };
 
